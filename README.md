@@ -36,7 +36,6 @@ This Telegram bot processes YouTube cooking videos and generates recipes by usin
     OPENAI_TOKEN=<Your OpenAI API Key>
     TELEGRAM_ID=<Your Telegram User ID>
 
-
 ## Usage
 
 1. Start the bot by running:
@@ -56,3 +55,13 @@ This Telegram bot processes YouTube cooking videos and generates recipes by usin
     - Only authorized users can interact with it.
     - Invalid or non-cooking videos result in helpful feedback messages.
 - OpenAI Usage: The gpt-4o-mini model is used for recipe generation, and its prompts are specifically tailored to generate structured recipes.
+
+
+## Contributing
+
+Feel free to submit issues, fork the repository, and create pull requests for any improvements.
+
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
