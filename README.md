@@ -29,7 +29,7 @@ This Telegram bot processes YouTube cooking videos and generates recipes by usin
    cd <repository_name>
 2. **Install required packages**:
     ```bash
-    pip install requirements.txt
+    pip install -r requirements.txt
 3. **Create a .env file in the project root with the following variables**:
     ```bash
     TELEGRAM_TOKEN=<Your Telegram Bot Token>
