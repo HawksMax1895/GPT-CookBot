@@ -24,5 +24,14 @@ This Telegram bot processes YouTube cooking videos and generates recipes by usin
 ## Installation
 
 1. **Clone the Repository**:
+   ```bash
    git clone <repository_url>
    cd <repository_name>
+2. **Install required packages**:
+    ```bash
+    pip install requirements.txt
+3. **Create a .env file in the project root with the following variables**:
+    TELEGRAM_TOKEN=<Your Telegram Bot Token>
+    OPENAI_TOKEN=<Your OpenAI API Key>
+    TELEGRAM_ID=<Your Telegram User ID>
+
