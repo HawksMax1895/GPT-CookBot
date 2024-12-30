@@ -59,7 +59,7 @@ def generate_recipe(transcript):
             model="gpt-4o-mini",
             messages=[
                 {"role": "system",
-                 "content": "You are a expert chef that creates clear, structured recipes. Create a recipe based on the video transcript provided, including ingredients list and step-by-step instructions. The ingredients should not be categorized, it should be a single list with all ingredients. Please provide all measurements in units of g, ml, tablespoon, teaspoon or pieces. The preparation steps should be short and understandable with 6-8 steps for each recipe. If the video is not a cooking video presenting a recipe, the answer Text should be: ### Recipe: NotARecipe"},
+                 "content": "You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided, including a single list of ingredients and step-by-step instructions. If an ingredient appears multiple times in the recipe, combine the quantities (e.g., if 20g pepper is used for the meat and 50g for the sauce, the total should be 70g of pepper). All ingredients should be listed together, not categorized. Please provide all measurements in units of g, ml, tablespoon, teaspoon, or pieces. The preparation steps should be short and understandable, with 6-8 steps for each recipe. If the video is not a cooking video presenting a recipe, the answer text should be: ### Recipe: NotARecipe."},
                 {"role": "user", "content": f"Please create a recipe based on this transcript: {transcript}"}
             ]
         )
@@ -100,7 +100,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check if message is a YouTube URL
     if 'youtube.com' in url or 'youtu.be' in url:
-        await update.message.reply_text('Processing your video...')
+        await update.message.reply_text('Thank you for sending a video, I am processing the video and generating a recipe.')
 
         # Extract video ID
         video_id = extract_video_id(url)
@@ -121,15 +121,19 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text('Error generating recipe. Please try again.')
             return
 
-        # Save and send recipe
-        filename = save_recipe(recipe, video_id)
-        try:
-            with open(filename, 'rb') as f:
-                await update.message.reply_document(f)
-            os.remove(filename)  # Clean up file after sending
-        except Exception as e:
-            logger.error(f"Error sending file: {e}")
-            await update.message.reply_text('Error sending recipe file. Please try again.')
+        # Check if the recipe indicates it's not a cooking video
+        if recipe.startswith('### Recipe: NotARecipe'):
+            await update.message.reply_text('This is not a cooking video. Please send a cooking video.')
+        else:
+            # Save and send recipe if it's a cooking video
+            filename = save_recipe(recipe, video_id)
+            try:
+                with open(filename, 'rb') as f:
+                    await update.message.reply_document(f)
+                os.remove(filename)  # Clean up file after sending
+            except Exception as e:
+                logger.error(f"Error sending file: {e}")
+                await update.message.reply_text('Error sending recipe file. Please try again.')
     else:
         await update.message.reply_text('Please send a valid YouTube video URL.')
 
