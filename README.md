@@ -31,7 +31,28 @@ This Telegram bot processes YouTube cooking videos and generates recipes by usin
     ```bash
     pip install requirements.txt
 3. **Create a .env file in the project root with the following variables**:
+    ```bash
     TELEGRAM_TOKEN=<Your Telegram Bot Token>
     OPENAI_TOKEN=<Your OpenAI API Key>
     TELEGRAM_ID=<Your Telegram User ID>
 
+
+## Usage
+
+1. Start the bot by running:
+    ```bash
+    python <filename>.py
+
+2. Interact via Telegram:
+   - Send the /start command to the bot.
+   - Provide a YouTube cooking video link.
+   - The bot will process the video and send you a .txt file with the recipe.
+
+
+## Development Notes
+
+- Logging: Logs are written to the console with INFO and ERROR levels for debugging.
+- Error Handling: The bot ensures:
+    - Only authorized users can interact with it.
+    - Invalid or non-cooking videos result in helpful feedback messages.
+- OpenAI Usage: The gpt-4o-mini model is used for recipe generation, and its prompts are specifically tailored to generate structured recipes.
