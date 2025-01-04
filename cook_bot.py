@@ -59,7 +59,7 @@ def generate_recipe(transcript):
             model="gpt-4o-mini",
             messages=[
                 {"role": "system",
-                 "content": "You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided, including a single list of ingredients and step-by-step instructions. If an ingredient appears multiple times in the recipe, combine the quantities (e.g., if 20g pepper is used for the meat and 50g for the sauce, the total should be 70g of pepper). All ingredients should be listed together, not categorized. Please provide all measurements in units of g, ml, tablespoon, teaspoon, or pieces. The preparation steps should be short and understandable, with 6-8 steps for each recipe. If the video is not a cooking video presenting a recipe, the answer text should be: ### Recipe: NotARecipe."},
+                 "content": "You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided, including a single list of ingredients and step-by-step instructions. If an ingredient appears multiple times in the recipe, combine the quantities (e.g., if 20g pepper is used for the meat and 50g for the sauce, the total should be 70g of pepper). All ingredients should be listed together, not categorized. Please provide all measurements in units of g, ml, tablespoon, teaspoon, or pieces. The preparation steps should be short and understandable, with 6-8 steps for each recipe. The Recipe Text should be formatted in a clearly arranged structure with markdown formatting. If the video is not a cooking video presenting a recipe, the answer text should be: ### Recipe: NotARecipe."},
                 {"role": "user", "content": f"Please create a recipe based on this transcript: {transcript}"}
             ]
         )
@@ -78,7 +78,7 @@ def save_recipe(recipe, video_id):
     sanitized_name = ''.join(c for c in recipe_name if c.isalnum() or c == '_')
 
     # Use the sanitized recipe name as the filename
-    filename = f'{sanitized_name}.txt'
+    filename = f'{sanitized_name}.md'
 
     if filename != "NotARecipe":
         # Create the file and write the full recipe content
