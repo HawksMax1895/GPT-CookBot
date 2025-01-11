@@ -113,19 +113,31 @@ def generate_recipe(transcript):
             messages=[
                 {"role": "system",
                  "content": """
-        You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided.
-        The recipe should include:
-        1. A clear title
-        2. A list of ingredients with quantities
-        3. Step-by-step instructions
-
+        You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided, including a single list of ingredients and step-by-step instructions. 
+        If an ingredient appears multiple times in the recipe, combine the quantities (e.g., if 20g pepper is used for the meat and 50g for the sauce, the total should be 70g of pepper). All ingredients should be listed together, not categorized. Please provide all measurements in units of g, ml, tablespoon, teaspoon, or pieces. 
+        The preparation steps should be understandable, with about 6-8 steps for each recipe. 
+        The Recipe Text should be formatted in a clearly arranged structure with markdown formatting. The ingredients should be formatted in a table and the preparation steps in a numbered list. 
+        
         Format the response as a JSON object with the following structure:
         {
             "title": "Recipe Name",
+            "metadata": {
+                "prep_time": "XX minutes",
+                "cook_time": "XX minutes",
+                "total_time": "XX minutes",
+                "servings": "X servings",
+                "calories_per_serving": XXX,
+                "protein_per_serving": "XX g",
+                "carbs_per_serving": "XX g",
+                "fat_per_serving": "XX g",
+                "price_per_serving": "€X.XX",
+            },
             "ingredients": ["ingredient 1 with quantity", "ingredient 2 with quantity", ...],
             "instructions": ["step 1", "step 2", ...]
         }
 
+        Add reasonable metadata values based on your culinary expertise and knowledge of similar recipes.
+        
         If the video is not a cooking video, return: {"title": "NotARecipe"}
 
         Make sure to return ONLY the JSON object, no additional text or formatting.
@@ -164,7 +176,64 @@ def save_to_notion(recipe_data):
 
         logger.info(f"Creating Notion page for recipe: {recipe['title']}")
 
-        # Create individual blocks for each ingredient
+        # Create metadata blocks
+        metadata_blocks = [
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": "Recipe Information"}}]
+                }
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": f"Preparation Time: {recipe['metadata']['prep_time']}\n"}},
+                        {"type": "text", "text": {"content": f"Cooking Time: {recipe['metadata']['cook_time']}\n"}},
+                        {"type": "text", "text": {"content": f"Total Time: {recipe['metadata']['total_time']}\n"}},
+                        {"type": "text", "text": {"content": f"Servings: {recipe['metadata']['servings']}\n"}},
+                    ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "heading_3",
+                "heading_3": {
+                    "rich_text": [{"type": "text", "text": {"content": "Nutrition Information (per serving)"}}]
+                }
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": f"Calories: {recipe['metadata']['calories_per_serving']}\n"}},
+                        {"type": "text", "text": {"content": f"Protein: {recipe['metadata']['protein_per_serving']}\n"}},
+                        {"type": "text", "text": {"content": f"Carbohydrates: {recipe['metadata']['carbs_per_serving']}\n"}},
+                        {"type": "text", "text": {"content": f"Fat: {recipe['metadata']['fat_per_serving']}\n"}},
+                    ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": f"Price per Serving: {recipe['metadata']['price_per_serving']}\n"}},
+                        #{"type": "text", "text": {"content": f"Source: {recipe['metadata']['source']}"}}
+                    ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "divider",
+                "divider": {}
+            }
+        ]
+
+        # Create ingredient blocks
         ingredient_blocks = []
         for ingredient in recipe['ingredients']:
             ingredient_blocks.append({
@@ -175,7 +244,7 @@ def save_to_notion(recipe_data):
                 }
             })
 
-        # Create individual blocks for each instruction
+        # Create instruction blocks
         instruction_blocks = []
         for instruction in recipe['instructions']:
             instruction_blocks.append({
@@ -187,7 +256,7 @@ def save_to_notion(recipe_data):
             })
 
         # Combine all blocks
-        all_blocks = [
+        all_blocks = metadata_blocks + [
             {
                 "object": "block",
                 "type": "heading_2",
