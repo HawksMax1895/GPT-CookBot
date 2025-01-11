@@ -5,6 +5,9 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import openai
 from youtube_transcript_api import YouTubeTranscriptApi
+from notion_client import Client
+import json
+import sys
 
 # Enable logging
 logging.basicConfig(
@@ -13,22 +16,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Telegram and OpenAI tokens
-load_dotenv()
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-OPENAI_TOKEN = os.environ.get('OPENAI_TOKEN')
-AUTHORIZED_USER_ID = int(os.environ.get('TELEGRAM_ID'))
 
-# Initialize OpenAI
+def validate_environment():
+    """Validate all required environment variables are set and valid."""
+    load_dotenv()
+
+    required_vars = {
+        'TELEGRAM_TOKEN': os.environ.get('TELEGRAM_TOKEN'),
+        'OPENAI_TOKEN': os.environ.get('OPENAI_TOKEN'),
+        'TELEGRAM_ID': os.environ.get('TELEGRAM_ID'),
+        'NOTION_TOKEN': os.environ.get('NOTION_TOKEN'),
+        'NOTION_DATABASE_ID': os.environ.get('NOTION_DATABASE_ID')
+    }
+
+    missing_vars = [var for var, value in required_vars.items() if not value]
+
+    if missing_vars:
+        logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+        logger.error("Please check your .env file contains all required variables")
+        sys.exit(1)
+
+    logger.info("Environment variables validated successfully")
+    logger.info(f"Using Notion Database ID: {required_vars['NOTION_DATABASE_ID']}")
+
+    return required_vars
+
+
+# Validate environment variables
+env_vars = validate_environment()
+
+# Initialize clients with validated environment variables
+TELEGRAM_TOKEN = env_vars['TELEGRAM_TOKEN']
+OPENAI_TOKEN = env_vars['OPENAI_TOKEN']
+AUTHORIZED_USER_ID = int(env_vars['TELEGRAM_ID'])
+NOTION_TOKEN = env_vars['NOTION_TOKEN']
+NOTION_DATABASE_ID = env_vars['NOTION_DATABASE_ID']
+
 openai.api_key = OPENAI_TOKEN
+notion = Client(auth=NOTION_TOKEN)
+
+
+def verify_notion_access():
+    """Verify access to Notion database."""
+    try:
+        # Try to query the database to verify access
+        notion.databases.retrieve(NOTION_DATABASE_ID)
+        logger.info("Notion database access verified successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to access Notion database: {e}")
+        return False
+
+
+# Verify Notion access on startup
+if not verify_notion_access():
+    logger.error("Could not access Notion database. Please check your NOTION_TOKEN and NOTION_DATABASE_ID")
+    sys.exit(1)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id  # Get the user ID of the message sender
+    user_id = update.effective_user.id
     if user_id != AUTHORIZED_USER_ID:
         await update.message.reply_text("Sorry, you are not authorized to use this bot.")
         return
-    await update.message.reply_text('Hello! Send me a YouTube cooking video link, and I\'ll create a recipe from it.')
+    await update.message.reply_text(
+        'Hello! Send me a YouTube cooking video link, and I\'ll create a recipe and save it to Notion.')
 
 
 def extract_video_id(url):
@@ -60,101 +112,173 @@ def generate_recipe(transcript):
             messages=[
                 {"role": "system",
                  "content": """
-        You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided, including a single list of ingredients and step-by-step instructions. 
-        If an ingredient appears multiple times in the recipe, combine the quantities (e.g., if 20g pepper is used for the meat and 50g for the sauce, the total should be 70g of pepper). All ingredients should be listed together, not categorized. Please provide all measurements in units of g, ml, tablespoon, teaspoon, or pieces. 
-        The preparation steps should be understandable, with about 6-8 steps for each recipe. 
-        The Recipe Text should be formatted in a clearly arranged structure with markdown formatting. The ingredients should be formatted in a table and the preparation steps in a numbered list.
-        If the video is not a cooking video presenting a recipe, the answer text should be: ### Recipe: NotARecipe.
+        You are an expert chef who creates clear, structured recipes. Create a recipe based on the video transcript provided.
+        The recipe should include:
+        1. A clear title
+        2. A list of ingredients with quantities
+        3. Step-by-step instructions
+
+        Format the response as a JSON object with the following structure:
+        {
+            "title": "Recipe Name",
+            "ingredients": ["ingredient 1 with quantity", "ingredient 2 with quantity", ...],
+            "instructions": ["step 1", "step 2", ...]
+        }
+
+        If the video is not a cooking video, return: {"title": "NotARecipe"}
+
+        Make sure to return ONLY the JSON object, no additional text or formatting.
         """
                  },
                 {"role": "user", "content": f"Please create a recipe based on this transcript: {transcript}"}
             ]
         )
-        return response.choices[0].message.content
+
+        recipe_text = response.choices[0].message.content
+        logger.info(f"Generated recipe text: {recipe_text}")
+
+        # Try to parse the JSON to validate it
+        recipe_json = json.loads(recipe_text)
+        return recipe_text
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing recipe JSON: {e}")
+        logger.error(f"Raw recipe text: {recipe_text}")
+        return None
     except Exception as e:
         logger.error(f"Error generating recipe: {e}")
         return None
 
 
-def save_recipe(recipe, video_id):
-    """Save recipe to text file."""
-    # Extract the recipe name from the first line (assuming it starts with '### Recipe: ')
-    recipe_name = recipe.split('\n')[0].replace('### Recipe: ', '').strip()
+def save_to_notion(recipe_data):
+    """Save recipe to Notion database."""
+    try:
+        # Parse the recipe_data
+        logger.info(f"Attempting to parse recipe data: {recipe_data}")
+        recipe = json.loads(recipe_data)
 
-    # Sanitize the recipe name to be used as a valid filename (removing unwanted characters)
-    sanitized_name = ''.join(c for c in recipe_name if c.isalnum() or c == '_')
+        if recipe.get('title') == 'NotARecipe':
+            logger.info("Recipe marked as NotARecipe")
+            return False
 
-    # Use the sanitized recipe name as the filename
-    filename = f'{sanitized_name}.md'
+        logger.info(f"Creating Notion page for recipe: {recipe['title']}")
 
-    if filename != "NotARecipe":
-        # Create the file and write the full recipe content
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(recipe)  # Write the entire recipe content to the file
+        # Create individual blocks for each ingredient
+        ingredient_blocks = []
+        for ingredient in recipe['ingredients']:
+            ingredient_blocks.append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [{"type": "text", "text": {"content": ingredient}}]
+                }
+            })
 
-    return filename
+        # Create individual blocks for each instruction
+        instruction_blocks = []
+        for instruction in recipe['instructions']:
+            instruction_blocks.append({
+                "object": "block",
+                "type": "numbered_list_item",
+                "numbered_list_item": {
+                    "rich_text": [{"type": "text", "text": {"content": instruction}}]
+                }
+            })
+
+        # Combine all blocks
+        all_blocks = [
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": "Ingredients"}}]
+                }
+            }
+        ]
+        all_blocks.extend(ingredient_blocks)
+        all_blocks.append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [{"type": "text", "text": {"content": "Instructions"}}]
+            }
+        })
+        all_blocks.extend(instruction_blocks)
+
+        # Create the page in Notion
+        notion.pages.create(
+            parent={"database_id": NOTION_DATABASE_ID},
+            properties={
+                "Name": {
+                    "title": [
+                        {
+                            "text": {
+                                "content": recipe['title']
+                            }
+                        }
+                    ]
+                }
+            },
+            children=all_blocks
+        )
+
+        logger.info("Successfully created Notion page")
+        return True
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing recipe JSON in save_to_notion: {e}")
+        logger.error(f"Raw recipe data: {recipe_data}")
+        return False
+    except Exception as e:
+        logger.error(f"Error saving to Notion: {e}")
+        return False
 
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id  # Get the user ID of the message sender
+    user_id = update.effective_user.id
     logger.info(f"User_ID: {user_id}")
     if user_id != AUTHORIZED_USER_ID:
         await update.message.reply_text("Sorry, you are not authorized to use this bot.")
         return
-    
-    """Process incoming messages."""
+
     url = update.message.text
 
-    # Check if message is a YouTube URL
     if 'youtube.com' in url or 'youtu.be' in url:
-        await update.message.reply_text('Thank you for sending a video, I am processing the video and generating a recipe.')
+        await update.message.reply_text('Processing video and generating recipe...')
 
-        # Extract video ID
         video_id = extract_video_id(url)
         if not video_id:
             await update.message.reply_text('Invalid YouTube URL. Please try again.')
             return
 
-        # Get transcript
         transcript = get_transcript(video_id)
         if not transcript:
             await update.message.reply_text(
                 'Could not get video transcript. Make sure the video has subtitles enabled.')
             return
 
-        # Generate recipe
         recipe = generate_recipe(transcript)
         if not recipe:
             await update.message.reply_text('Error generating recipe. Please try again.')
             return
 
-        # Check if the recipe indicates it's not a cooking video
-        if recipe.startswith('### Recipe: NotARecipe'):
-            await update.message.reply_text('This is not a cooking video. Please send a cooking video.')
+        # Save to Notion
+        if save_to_notion(recipe):
+            await update.message.reply_text('Recipe has been successfully saved to Notion!')
         else:
-            # Save and send recipe if it's a cooking video
-            filename = save_recipe(recipe, video_id)
-            try:
-                with open(filename, 'rb') as f:
-                    await update.message.reply_document(f)
-                os.remove(filename)  # Clean up file after sending
-            except Exception as e:
-                logger.error(f"Error sending file: {e}")
-                await update.message.reply_text('Error sending recipe file. Please try again.')
+            error_msg = "There was an error saving to Notion. Please check the logs for details."
+            await update.message.reply_text(error_msg)
+            # Send the generated recipe as text for debugging
+            await update.message.reply_text(f"Debug - Generated recipe:\n{recipe}")
     else:
         await update.message.reply_text('Please send a valid YouTube video URL.')
 
 
 def main():
     """Start the bot."""
-    # Create application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message))
-
-    # Start the bot
     logger.info("Starting bot...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
