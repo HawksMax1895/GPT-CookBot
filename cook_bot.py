@@ -39,6 +39,7 @@ def validate_environment():
     logger.info("Environment variables validated successfully")
     logger.info(f"Using Notion Database ID: {required_vars['NOTION_DATABASE_ID']}")
 
+
     return required_vars
 
 
@@ -268,8 +269,6 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             error_msg = "There was an error saving to Notion. Please check the logs for details."
             await update.message.reply_text(error_msg)
-            # Send the generated recipe as text for debugging
-            await update.message.reply_text(f"Debug - Generated recipe:\n{recipe}")
     else:
         await update.message.reply_text('Please send a valid YouTube video URL.')
 
