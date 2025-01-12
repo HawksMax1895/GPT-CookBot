@@ -8,6 +8,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from notion_client import Client
 import json
 import sys
+from urllib.parse import urlparse, parse_qs
 
 # Enable logging
 logging.basicConfig(
@@ -85,14 +86,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def extract_video_id(url):
-    """Extract YouTube video ID from URL."""
-    if 'youtu.be' in url:
-        return url.split('/')[-1]
-    elif 'youtube.com/shorts/' in url:
-        return url.split('/shorts/')[1].split('?')[0]
-    elif 'youtube.com' in url:
-        return url.split('v=')[1].split('&')[0]
+    """Extract YouTube video ID from a URL."""
+    try:
+        parsed_url = urlparse(url)
+        if parsed_url.netloc in ["www.youtube.com", "youtube.com"]:
+            # Extract 'v' parameter for regular YouTube links
+            query_params = parse_qs(parsed_url.query)
+            if 'v' in query_params:
+                return query_params['v'][0]
+        elif parsed_url.netloc == "youtu.be":
+            # For shortened YouTube URLs
+            return parsed_url.path.lstrip('/')
+        elif 'youtube.com/shorts/' in url:
+            # For YouTube Shorts
+            return url.split('/shorts/')[1].split('?')[0]
+    except Exception as e:
+        logger.error(f"Error extracting video ID from URL {url}: {e}")
     return None
+
 
 
 def get_transcript(video_id):
@@ -217,18 +228,11 @@ def split_ingredient(ingredient):
 
 def get_youtube_thumbnail(video_id):
     """Get the highest quality thumbnail URL for a YouTube video."""
-    # YouTube thumbnail quality options from highest to lowest
-    thumbnail_qualities = [
-        'maxresdefault',  # 1080p
-        'sddefault',  # 640p
-        'hqdefault',  # 480p
-        'mqdefault',  # 320p
-        'default'  # 120p
-    ]
+    if not video_id:
+        logger.error("Invalid video ID provided for thumbnail.")
+        return None
 
-    # Try each quality until we find one that exists
-    base_url = f'https://img.youtube.com/vi/{video_id}'
-    return f"{base_url}/maxresdefault.jpg"
+    return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
 
 
 def save_to_notion(recipe_data, video_url):
