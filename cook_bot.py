@@ -163,8 +163,76 @@ def generate_recipe(transcript):
         return None
 
 
-def save_to_notion(recipe_data):
-    """Save recipe to Notion database."""
+def split_ingredient(ingredient):
+    """Split ingredient string into name and quantity."""
+    # Handle special cases first (optional ingredients, garnishes)
+    if '(optional)' in ingredient:
+        base = ingredient.replace('(optional)', '').strip()
+        is_optional = True
+    else:
+        base = ingredient
+        is_optional = False
+
+    if '(for garnish)' in base:
+        return base.replace('(for garnish)', '').strip(), 'for garnish'
+
+    # Handle "salt to taste" type cases
+    if 'to taste' in base:
+        return base.replace('to taste', '').strip(), 'to taste'
+
+    # Regular ingredient parsing
+    parts = base.split(' ')
+
+    # Find where the ingredient name starts
+    quantity_parts = []
+    name_parts = []
+    measurement_found = False
+
+    for part in parts:
+        # If we haven't found a measurement unit yet, this must be part of the quantity
+        if not measurement_found:
+            if part in ['g', 'ml', 'tbsp', 'tsp', 'cups', 'cup']:
+                quantity_parts.append(part)
+                measurement_found = True
+            else:
+                try:
+                    # Check if it's a number (including decimals)
+                    float(part.replace(',', '.'))
+                    quantity_parts.append(part)
+                except ValueError:
+                    # If it's not a number and not a unit, it's part of the name
+                    measurement_found = True
+                    name_parts.append(part)
+        else:
+            name_parts.append(part)
+
+    quantity = ' '.join(quantity_parts)
+    name = ' '.join(name_parts)
+
+    if is_optional:
+        name += ' (optional)'
+
+    return name, quantity
+
+
+def get_youtube_thumbnail(video_id):
+    """Get the highest quality thumbnail URL for a YouTube video."""
+    # YouTube thumbnail quality options from highest to lowest
+    thumbnail_qualities = [
+        'maxresdefault',  # 1080p
+        'sddefault',  # 640p
+        'hqdefault',  # 480p
+        'mqdefault',  # 320p
+        'default'  # 120p
+    ]
+
+    # Try each quality until we find one that exists
+    base_url = f'https://img.youtube.com/vi/{video_id}'
+    return f"{base_url}/maxresdefault.jpg"
+
+
+def save_to_notion(recipe_data, video_url):
+    """Save recipe to Notion database with metadata as properties."""
     try:
         # Parse the recipe_data
         logger.info(f"Attempting to parse recipe data: {recipe_data}")
@@ -174,80 +242,111 @@ def save_to_notion(recipe_data):
             logger.info("Recipe marked as NotARecipe")
             return False
 
+        # Get video thumbnail
+        video_id = extract_video_id(video_url)
+        thumbnail_url = get_youtube_thumbnail(video_id)
+
         logger.info(f"Creating Notion page for recipe: {recipe['title']}")
 
-        # Create metadata blocks
-        metadata_blocks = [
+        # Create properties with metadata
+        properties = {
+            "Name": {
+                "title": [{"text": {"content": recipe['title']}}]
+            },
+            "Preparation Time": {
+                "rich_text": [{"text": {"content": recipe['metadata']['prep_time']}}]
+            },
+            "Cooking Time": {
+                "rich_text": [{"text": {"content": recipe['metadata']['cook_time']}}]
+            },
+            "Total Time": {
+                "rich_text": [{"text": {"content": recipe['metadata']['total_time']}}]
+            },
+            "Servings": {
+                "number": int(recipe['metadata']['servings'].split()[0])
+            },
+            "Calories per Serving": {
+                "number": recipe['metadata']['calories_per_serving']
+            },
+            "Protein (g)": {
+                "number": float(recipe['metadata']['protein_per_serving'].split()[0])
+            },
+            "Carbs (g)": {
+                "number": float(recipe['metadata']['carbs_per_serving'].split()[0])
+            },
+            "Fat (g)": {
+                "number": float(recipe['metadata']['fat_per_serving'].split()[0])
+            },
+            "Price per Serving": {
+                "rich_text": [{"text": {"content": recipe['metadata']['price_per_serving']}}]
+            },
+            "Source": {
+                "url": video_url
+            }
+        }
+
+        # Create ingredients table
+        ingredients_table = {
+            "object": "block",
+            "type": "table",
+            "table": {
+                "table_width": 2,
+                "has_column_header": True,
+                "has_row_header": False,
+                "children": [
+                    {
+                        "type": "table_row",
+                        "table_row": {
+                            "cells": [
+                                [{"type": "text", "text": {"content": "Ingredient"}}],
+                                [{"type": "text", "text": {"content": "Quantity"}}]
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+
+        # Add ingredients to table
+        for ingredient in recipe['ingredients']:
+            name, quantity = split_ingredient(ingredient)
+            ingredients_table["table"]["children"].append({
+                "type": "table_row",
+                "table_row": {
+                    "cells": [
+                        [{"type": "text", "text": {"content": name}}],
+                        [{"type": "text", "text": {"content": quantity}}]
+                    ]
+                }
+            })
+
+        # Combine all blocks with headers and dividers
+        all_blocks = [
             {
                 "object": "block",
                 "type": "heading_2",
                 "heading_2": {
-                    "rich_text": [{"type": "text", "text": {"content": "Recipe Information"}}]
+                    "rich_text": [{"type": "text", "text": {"content": "Ingredients"}}]
                 }
             },
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": f"Preparation Time: {recipe['metadata']['prep_time']}\n"}},
-                        {"type": "text", "text": {"content": f"Cooking Time: {recipe['metadata']['cook_time']}\n"}},
-                        {"type": "text", "text": {"content": f"Total Time: {recipe['metadata']['total_time']}\n"}},
-                        {"type": "text", "text": {"content": f"Servings: {recipe['metadata']['servings']}\n"}},
-                    ]
-                }
-            },
-            {
-                "object": "block",
-                "type": "heading_3",
-                "heading_3": {
-                    "rich_text": [{"type": "text", "text": {"content": "Nutrition Information (per serving)"}}]
-                }
-            },
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": f"Calories: {recipe['metadata']['calories_per_serving']}\n"}},
-                        {"type": "text", "text": {"content": f"Protein: {recipe['metadata']['protein_per_serving']}\n"}},
-                        {"type": "text", "text": {"content": f"Carbohydrates: {recipe['metadata']['carbs_per_serving']}\n"}},
-                        {"type": "text", "text": {"content": f"Fat: {recipe['metadata']['fat_per_serving']}\n"}},
-                    ]
-                }
-            },
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": f"Price per Serving: {recipe['metadata']['price_per_serving']}\n"}},
-                        #{"type": "text", "text": {"content": f"Source: {recipe['metadata']['source']}"}}
-                    ]
-                }
-            },
+            ingredients_table,
             {
                 "object": "block",
                 "type": "divider",
                 "divider": {}
+            },
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": "Instructions"}}]
+                }
             }
         ]
 
-        # Create ingredient blocks
-        ingredient_blocks = []
-        for ingredient in recipe['ingredients']:
-            ingredient_blocks.append({
-                "object": "block",
-                "type": "bulleted_list_item",
-                "bulleted_list_item": {
-                    "rich_text": [{"type": "text", "text": {"content": ingredient}}]
-                }
-            })
-
-        # Create instruction blocks
-        instruction_blocks = []
+        # Add instructions
         for instruction in recipe['instructions']:
-            instruction_blocks.append({
+            all_blocks.append({
                 "object": "block",
                 "type": "numbered_list_item",
                 "numbered_list_item": {
@@ -255,41 +354,17 @@ def save_to_notion(recipe_data):
                 }
             })
 
-        # Combine all blocks
-        all_blocks = metadata_blocks + [
-            {
-                "object": "block",
-                "type": "heading_2",
-                "heading_2": {
-                    "rich_text": [{"type": "text", "text": {"content": "Ingredients"}}]
-                }
-            }
-        ]
-        all_blocks.extend(ingredient_blocks)
-        all_blocks.append({
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [{"type": "text", "text": {"content": "Instructions"}}]
-            }
-        })
-        all_blocks.extend(instruction_blocks)
-
-        # Create the page in Notion
-        notion.pages.create(
+        # Create the page in Notion with properties, blocks, and cover image
+        page = notion.pages.create(
             parent={"database_id": NOTION_DATABASE_ID},
-            properties={
-                "Name": {
-                    "title": [
-                        {
-                            "text": {
-                                "content": recipe['title']
-                            }
-                        }
-                    ]
+            properties=properties,
+            children=all_blocks,
+            cover={
+                "type": "external",
+                "external": {
+                    "url": thumbnail_url
                 }
-            },
-            children=all_blocks
+            }
         )
 
         logger.info("Successfully created Notion page")
@@ -332,8 +407,8 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text('Error generating recipe. Please try again.')
             return
 
-        # Save to Notion
-        if save_to_notion(recipe):
+        # Save to Notion with URL
+        if save_to_notion(recipe, url):
             await update.message.reply_text('Recipe has been successfully saved to Notion!')
         else:
             error_msg = "There was an error saving to Notion. Please check the logs for details."
