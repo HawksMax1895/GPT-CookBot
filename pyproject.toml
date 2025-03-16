@@ -4,4 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "dotenv>=0.9.9",
+    "jsonschema>=4.23.0",
+    "logging>=0.4.9.6",
+    "notion-client>=2.3.0",
+    "openai>=1.66.3",
+    "python-telegram-bot>=22.0",
+    "youtube-transcript-api>=1.0.1",
+]
